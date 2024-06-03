@@ -36,6 +36,12 @@
     "ts-jest": "^29.1.4",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5",
-    "typescript-eslint": "^7.11.0"
+    "typescript-eslint": "^7.12.0"
+  },
+  "dependencies": {
+    "@commander-js/extra-typings": "^12.1.0",
+    "commander": "^12.1.0",
+    "deepmerge-ts": "^7.0.2",
+    "type-fest": "^4.18.3"
   }
 }
