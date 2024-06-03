@@ -1,18 +1,18 @@
 {
-  "name": "typescript-template",
-  "description": "A short project description",
+  "name": "templater",
+  "description": "A templater for Typescript project to begin with",
   "version": "0.0,1",
   "private": false,
   "license": "UNLICENSED",
   "type": "commonjs",
   "author": "carlba",
-  "homepage": "https://github.com/carlba/typescript-template",
+  "homepage": "https://github.com/carlba/templaters",
   "bugs": {
-    "url": "https://github.com/carlba/typescript-template"
+    "url": "https://github.com/carlba/templaters"
   },
   "repository": {
     "type": "git",
-    "url": "git@github.com:pocketsolutions/typescript-template"
+    "url": "git@github.com:carlba/templater"
   },
   "scripts": {
     "build": "tsc",
