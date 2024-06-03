@@ -1,0 +1,41 @@
+{
+  "name": "typescript-template",
+  "description": "A short project description",
+  "version": "0.0,1",
+  "private": false,
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "author": "carlba",
+  "homepage": "https://github.com/carlba/typescript-template",
+  "bugs": {
+    "url": "https://github.com/carlba/typescript-template"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:pocketsolutions/typescript-template"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:dev": "nodemon -r dotenv/config -q src/index.ts",
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@tsconfig/node20": "^20.1.4",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "dotenv": "^16.4.5",
+    "eslint": "^8.57.0",
+    "husky": "^9.0.11",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.2",
+    "prettier": "^3.3.0",
+    "ts-jest": "^29.1.4",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^7.11.0"
+  }
+}
