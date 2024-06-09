@@ -1,11 +1,16 @@
 module.exports = {
   env: {
+    es2022: true,
     node: true,
   },
   overrides: [
     {
-      files: ['**/*'],
+      files: ['**/*.js'],
       extends: ['eslint:recommended'],
+      // https://eslint.org/docs/v8.x/use/configure/language-options#specifying-parser-options
+      parserOptions: {
+        ecmaVersion: '2022',
+      },
     },
     {
       files: ['src**/*.ts'],
