@@ -5,6 +5,9 @@ import { PackageJson } from 'type-fest';
 import { deepmerge } from 'deepmerge-ts';
 import path from 'path';
 import { pick } from './utils';
+import { Transform, Readable } from 'node:stream';
+import { createWriteStream } from 'node:fs';
+import split2 from 'split2';
 
 async function readPackageJson(filePath: string): Promise<PackageJson> {
   try {
@@ -21,20 +24,37 @@ async function readPackageJson(filePath: string): Promise<PackageJson> {
   }
 }
 
-async function downloadUrlToFile(url: string, file: string) {
+async function downloadUrlToFile(
+  url: string,
+  file: string,
+  replacements: Record<string, string> = {}
+) {
   const response = await fetch(url);
 
-  const arrayBuffer = await response.arrayBuffer();
-
-  try {
-    await fs.writeFile(file, Buffer.from(arrayBuffer));
-    console.log(`Successfully wrote to file ${file}`);
-  } catch (e) {
-    console.error('Error writing file', e);
-    throw Error(`Error downloading url ${url} to fille ${file}`);
+  if (!response.ok) {
+    throw new Error(`unexpected response ${response.statusText}`);
   }
 
-  console.log(`finished downloading ${file}`);
+  const replaceStream = new Transform({
+    transform(chunk: string, encoding, callback) {
+      let data = chunk.toString();
+
+      for (const [from, to] of Object.entries(replacements)) {
+        data = data.replace(new RegExp(from, 'g'), to);
+      }
+      callback(null, data + '\n');
+    },
+  });
+
+  if (response.body) {
+    // https://nodejs.org/api/stream.html#streamreadablefromwebreadablestream-options
+    Readable.fromWeb(response.body)
+      .pipe(split2())
+      .pipe(replaceStream)
+      .pipe(createWriteStream(file));
+  }
+
+  console.log(`Finished downloading ${file}`);
 }
 
 async function runCommand(command: string): Promise<{ stdout: string; stderr: string }> {
@@ -108,6 +128,10 @@ export async function run(baseUrl: string, cwd: string, outputPath?: string) {
   } catch (e) {
     console.error('Error writing file', e);
   }
+  const replacements =
+    templatePackageJson.name && localPackageJson.name
+      ? { [templatePackageJson.name]: localPackageJson.name }
+      : {};
 
   for await (const fileName of [
     'nodemon.json',
@@ -121,10 +145,15 @@ export async function run(baseUrl: string, cwd: string, outputPath?: string) {
     if (fileName === '.eslintrc.js' && localPackageJson.type === 'module') {
       await downloadUrlToFile(
         `${baseUrl}/${fileName}`,
-        `${outputPath ?? '.'}/${fileName}`.replace('.js', '.cjs')
+        `${outputPath ?? '.'}/${fileName}`.replace('.js', '.cjs'),
+        replacements
       );
     } else {
-      await downloadUrlToFile(`${baseUrl}/${fileName}`, `${outputPath ?? '.'}/${fileName}`);
+      await downloadUrlToFile(
+        `${baseUrl}/${fileName}`,
+        `${outputPath ?? '.'}/${fileName}`,
+        replacements
+      );
     }
   }
 }
