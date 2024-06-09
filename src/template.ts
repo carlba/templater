@@ -81,7 +81,10 @@ export async function run(baseUrl: string, cwd: string, outputPath?: string) {
   process.chdir(cwd);
 
   try {
-    await fs.writeFile(`${outputPath ?? '.'}/package.json`, JSON.stringify(packageJson, null, 2));
+    await fs.writeFile(
+      `${outputPath ?? '.'}/package.json`,
+      JSON.stringify(packageJson, null, 2) + '\n'
+    );
     console.log('Successfully wrote to file');
   } catch (e) {
     console.error('Error writing file', e);
