@@ -4,6 +4,7 @@ import { exec } from 'child_process';
 import { PackageJson } from 'type-fest';
 import { deepmerge } from 'deepmerge-ts';
 import path from 'path';
+import { pick } from './utils';
 
 async function readPackageJson(filePath: string): Promise<PackageJson> {
   try {
@@ -50,11 +51,15 @@ async function runCommand(command: string): Promise<{ stdout: string; stderr: st
   });
 }
 
-async function npmInstall(packageName: string, isDevDep: boolean) {
+async function npmInstall(packageName?: string, isDevDep?: boolean) {
+  if (packageName && !isDevDep) {
+    throw new Error('isDevDep must be defined if a package name is used');
+  }
+
   console.log('current cwd', process.cwd());
   try {
     const { stdout, stderr } = await runCommand(
-      `npm install ${isDevDep ? '--save-dev' : ''} ${packageName}`
+      `npm install ${isDevDep ? '--save-dev' : ''} ${packageName ? packageName : ''}`
     );
 
     console.log(stdout, stderr);
@@ -63,17 +68,32 @@ async function npmInstall(packageName: string, isDevDep: boolean) {
   }
 }
 
-export async function run(
-  baseUrl: string,
-  cwd: string,
-  outputPath?: string,
-  packageJsonOverrides?: PackageJson
-) {
+export async function run(baseUrl: string, cwd: string, outputPath?: string) {
   const packageJsonPath = path.join(cwd, 'package.json');
 
-  const packageJson = packageJsonOverrides
-    ? deepmerge(await readPackageJson(packageJsonPath), packageJsonOverrides)
-    : await readPackageJson(packageJsonPath);
+  const templatePackageJson = (await fetch(`${baseUrl}/package.json`).then(response =>
+    response.json()
+  )) as PackageJson;
+
+  const localPackageJson = await readPackageJson(packageJsonPath);
+
+  const packageJsonOverridesFromTemplate = pick(templatePackageJson, ['scripts']);
+
+  if (templatePackageJson.devDependencies) {
+    const devDependenciesString = Object.entries(templatePackageJson.devDependencies).map(
+      ([name, version]) => `${name}@${version}`.replace('^', '')
+    );
+    await npmInstall(devDependenciesString.join(' '), true);
+  }
+
+  if (templatePackageJson.dependencies) {
+    const dependenciesString = Object.entries(templatePackageJson.dependencies).map(
+      ([name, version]) => `${name}@${version}`.replace('^', '')
+    );
+    await npmInstall(dependenciesString.join(' '), false);
+  }
+
+  const packageJson = deepmerge(localPackageJson, packageJsonOverridesFromTemplate);
 
   await fs.mkdir(cwd, { recursive: true });
   if (outputPath) {
@@ -98,9 +118,13 @@ export async function run(
     'jest.config.ts',
     '.eslintrc.js',
   ]) {
-    await downloadUrlToFile(`${baseUrl}/${fileName}`, `${outputPath ?? '.'}/${fileName}`);
+    if (fileName === '.eslintrc.js' && localPackageJson.type === 'module') {
+      await downloadUrlToFile(
+        `${baseUrl}/${fileName}`,
+        `${outputPath ?? '.'}/${fileName}`.replace('.js', '.cjs')
+      );
+    } else {
+      await downloadUrlToFile(`${baseUrl}/${fileName}`, `${outputPath ?? '.'}/${fileName}`);
+    }
   }
-
-  await npmInstall('typescript-eslint', true);
-  await npmInstall('eslint@^8.57.0', true);
 }
