@@ -1,6 +1,5 @@
 /* eslint-disable no-prototype-builtins */
 import * as fs from 'fs/promises';
-import { exec } from 'child_process';
 import { PackageJson } from 'type-fest';
 import { deepmerge } from 'deepmerge-ts';
 import path from 'path';
@@ -8,47 +7,8 @@ import { pick } from './utils';
 import { Transform, Readable } from 'node:stream';
 import { createWriteStream } from 'node:fs';
 import split2 from 'split2';
-import { createReadStream } from 'fs';
-import { rename, access } from 'fs/promises';
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function renameFile(oldPath: string, newPath: string, relative: boolean) {
-  if (relative) {
-    oldPath = path.resolve(oldPath);
-    newPath = path.resolve(newPath);
-  }
-
-  try {
-    await rename(oldPath, newPath);
-    // console.log(`Successfully renamed file from ${oldPath} to ${newPath}`);
-  } catch (error) {
-    if (error instanceof Error)
-      console.error(`Error renaming file from ${oldPath} to ${newPath}: ${error.message}`);
-  }
-}
-
-async function readPackageJson(filePath: string): Promise<PackageJson> {
-  try {
-    const data = await fs.readFile(filePath, 'utf-8');
-    const json = JSON.parse(data) as PackageJson;
-
-    if (json === undefined) {
-      throw Error('Could not parse json from file');
-    }
-    return json;
-  } catch (error) {
-    console.error(`Error reading file from ${filePath}`, error);
-    throw error;
-  }
-}
+import { readPackageJson, replaceInFile } from './file-utils';
+import { npmInstall } from './process-utils';
 
 async function downloadUrlToFile(
   url: string,
@@ -84,70 +44,6 @@ async function downloadUrlToFile(
   }
 
   console.log(`Finished downloading ${file}`);
-}
-
-async function replaceInFile(fileName: string, replacements: Record<string, string> = {}) {
-  if (!(await fileExists(fileName))) {
-    console.log(`The file ${fileName} did not exist`);
-  }
-
-  const readStream = createReadStream(fileName);
-
-  const replaceStream = new Transform({
-    transform(chunk: string, encoding, callback) {
-      let data = chunk.toString();
-
-      for (const [from, to] of Object.entries(replacements)) {
-        data = data.replace(new RegExp(from, 'g'), to);
-      }
-      callback(null, data + '\n');
-    },
-  });
-
-  const tempFilename = `${fileName}.tmp`;
-  const writeStream = createWriteStream(tempFilename);
-
-  readStream.pipe(split2()).pipe(replaceStream).pipe(writeStream);
-
-  await new Promise((resolve, reject) => {
-    writeStream.on('finish', resolve);
-    writeStream.on('error', reject);
-  });
-
-  await renameFile(tempFilename, fileName, true);
-
-  console.log(`Finished replacing things in ${fileName}`);
-}
-
-async function runCommand(command: string): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    console.log(`Running command ${command}`);
-    return exec(command, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve({ stdout, stderr });
-    });
-  });
-}
-
-async function npmInstall(packageName?: string, isDevDep?: boolean) {
-  if (packageName && !isDevDep) {
-    throw new Error('isDevDep must be defined if a package name is used');
-  }
-
-  console.log('current cwd', process.cwd());
-  try {
-    const { stdout, stderr } = await runCommand(
-      `npm install ${isDevDep ? '--save-dev' : ''} ${packageName ? packageName : ''}`
-    );
-
-    console.log(stdout, stderr);
-  } catch (e) {
-    console.log(e);
-  }
 }
 
 export async function run(baseUrl: string, cwd: string, outputPath?: string) {
