@@ -8,6 +8,32 @@ import { pick } from './utils';
 import { Transform, Readable } from 'node:stream';
 import { createWriteStream } from 'node:fs';
 import split2 from 'split2';
+import { createReadStream } from 'fs';
+import { rename, access } from 'fs/promises';
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function renameFile(oldPath: string, newPath: string, relative: boolean) {
+  if (relative) {
+    oldPath = path.resolve(oldPath);
+    newPath = path.resolve(newPath);
+  }
+
+  try {
+    await rename(oldPath, newPath);
+    // console.log(`Successfully renamed file from ${oldPath} to ${newPath}`);
+  } catch (error) {
+    if (error instanceof Error)
+      console.error(`Error renaming file from ${oldPath} to ${newPath}: ${error.message}`);
+  }
+}
 
 async function readPackageJson(filePath: string): Promise<PackageJson> {
   try {
@@ -47,14 +73,50 @@ async function downloadUrlToFile(
   });
 
   if (response.body) {
+    const writeStream = createWriteStream(file);
     // https://nodejs.org/api/stream.html#streamreadablefromwebreadablestream-options
-    Readable.fromWeb(response.body)
-      .pipe(split2())
-      .pipe(replaceStream)
-      .pipe(createWriteStream(file));
+    Readable.fromWeb(response.body).pipe(split2()).pipe(replaceStream).pipe(writeStream);
+
+    return new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
   }
 
   console.log(`Finished downloading ${file}`);
+}
+
+async function replaceInFile(fileName: string, replacements: Record<string, string> = {}) {
+  if (!(await fileExists(fileName))) {
+    console.log(`The file ${fileName} did not exist`);
+  }
+
+  const readStream = createReadStream(fileName);
+
+  const replaceStream = new Transform({
+    transform(chunk: string, encoding, callback) {
+      let data = chunk.toString();
+
+      for (const [from, to] of Object.entries(replacements)) {
+        data = data.replace(new RegExp(from, 'g'), to);
+      }
+      callback(null, data + '\n');
+    },
+  });
+
+  const tempFilename = `${fileName}.tmp`;
+  const writeStream = createWriteStream(tempFilename);
+
+  readStream.pipe(split2()).pipe(replaceStream).pipe(writeStream);
+
+  await new Promise((resolve, reject) => {
+    writeStream.on('finish', resolve);
+    writeStream.on('error', reject);
+  });
+
+  await renameFile(tempFilename, fileName, true);
+
+  console.log(`Finished replacing things in ${fileName}`);
 }
 
 async function runCommand(command: string): Promise<{ stdout: string; stderr: string }> {
@@ -155,5 +217,18 @@ export async function run(baseUrl: string, cwd: string, outputPath?: string) {
         replacements
       );
     }
+  }
+
+  for await (const fileName of [
+    'nodemon.json',
+    'tsconfig.json',
+    'tsconfig.spec.json',
+    '.prettierrc',
+    '.gitignore',
+    'jest.config.ts',
+    '.eslintrc.js',
+    'README.md',
+  ]) {
+    await replaceInFile(`${outputPath ?? '.'}/${fileName}`, replacements);
   }
 }
