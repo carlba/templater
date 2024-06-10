@@ -46,7 +46,13 @@ async function downloadUrlToFile(
   console.log(`Finished downloading ${file}`);
 }
 
-export async function run(baseUrl: string, cwd: string, author: string, outputPath?: string) {
+export async function run(
+  baseUrl: string,
+  cwd: string,
+  author: string,
+  projectName?: string,
+  outputPath?: string
+) {
   const packageJsonPath = path.join(cwd, 'package.json');
 
   const templatePackageJson = (await fetch(`${baseUrl}/package.json`).then(response =>
@@ -54,12 +60,13 @@ export async function run(baseUrl: string, cwd: string, author: string, outputPa
   )) as PackageJson;
 
   const localPackageJson = await readPackageJson(packageJsonPath);
+  const localProjectName = projectName ?? localPackageJson.name;
 
   const packageJsonOverridesFromTemplate = {
     ...pick(templatePackageJson, ['scripts']),
-    name: localPackageJson.name,
-    homepage: `https://github.com/${author}/${localPackageJson.name}`,
-    repository: { type: 'git', url: `git@github.com:${author}/${localPackageJson.name}` },
+    name: localProjectName,
+    homepage: `https://github.com/${author}/${localProjectName}`,
+    repository: { type: 'git', url: `git@github.com:${author}/${localProjectName}` },
     author,
   };
 
@@ -96,8 +103,8 @@ export async function run(baseUrl: string, cwd: string, author: string, outputPa
     console.error('Error writing file', e);
   }
   const replacements =
-    templatePackageJson.name && localPackageJson.name
-      ? { [templatePackageJson.name]: localPackageJson.name }
+    templatePackageJson.name && localProjectName
+      ? { [templatePackageJson.name]: localProjectName }
       : {};
 
   for await (const fileName of [
