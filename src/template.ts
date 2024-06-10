@@ -133,6 +133,7 @@ export async function run(baseUrl: string, cwd: string, author: string, outputPa
     'jest.config.ts',
     '.eslintrc.js',
     'README.md',
+    'package-lock.json',
   ]) {
     await replaceInFile(`${outputPath ?? '.'}/${fileName}`, replacements);
   }
