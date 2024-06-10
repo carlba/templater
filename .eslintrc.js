@@ -5,7 +5,7 @@ module.exports = {
   },
   overrides: [
     {
-      files: ['**/*.js'],
+      files: ['**/*.{js,cjs}'],
       extends: ['eslint:recommended'],
       // https://eslint.org/docs/v8.x/use/configure/language-options#specifying-parser-options
       parserOptions: {
