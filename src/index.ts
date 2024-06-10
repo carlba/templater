@@ -12,8 +12,9 @@ new Command()
     'The URI to fetch the template from',
     'https://raw.githubusercontent.com/carlba/typescript-template/main'
   )
+  .option('-a, --author <URI>', 'The author of the repo', 'carlba')
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   .action(async (directory, options) => {
-    await run(options.uri, directory ?? '.');
+    await run(options.uri, directory ?? '.', options.author);
   })
   .parse(process.argv);

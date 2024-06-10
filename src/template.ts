@@ -46,7 +46,7 @@ async function downloadUrlToFile(
   console.log(`Finished downloading ${file}`);
 }
 
-export async function run(baseUrl: string, cwd: string, outputPath?: string) {
+export async function run(baseUrl: string, cwd: string, author: string, outputPath?: string) {
   const packageJsonPath = path.join(cwd, 'package.json');
 
   const templatePackageJson = (await fetch(`${baseUrl}/package.json`).then(response =>
@@ -55,7 +55,13 @@ export async function run(baseUrl: string, cwd: string, outputPath?: string) {
 
   const localPackageJson = await readPackageJson(packageJsonPath);
 
-  const packageJsonOverridesFromTemplate = pick(templatePackageJson, ['scripts']);
+  const packageJsonOverridesFromTemplate = {
+    ...pick(templatePackageJson, ['scripts']),
+    name: localPackageJson.name,
+    homepage: `https://github.com/${author}/${localPackageJson.name}`,
+    repository: { type: 'git', url: `git@github.com:${author}/${localPackageJson.name}` },
+    author,
+  };
 
   if (templatePackageJson.devDependencies) {
     const devDependenciesString = Object.entries(templatePackageJson.devDependencies).map(
