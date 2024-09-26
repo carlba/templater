@@ -9,7 +9,6 @@ import { createWriteStream } from 'node:fs';
 import split2 from 'split2';
 import { fileExists, readPackageJson, replaceInFile } from './file-utils';
 import { npmInstall } from './process-utils';
-import { read } from 'fs';
 
 async function downloadUrlToFile(
   url: string,
