@@ -3,6 +3,7 @@ module.exports = {
     es2022: true,
     node: true,
   },
+  ignorePatterns: ['dist/'],
   overrides: [
     {
       files: ['**/*.{js,cjs}'],
