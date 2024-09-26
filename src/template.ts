@@ -7,8 +7,9 @@ import { pick } from './utils';
 import { Transform, Readable } from 'node:stream';
 import { createWriteStream } from 'node:fs';
 import split2 from 'split2';
-import { readPackageJson, replaceInFile } from './file-utils';
+import { fileExists, readPackageJson, replaceInFile } from './file-utils';
 import { npmInstall } from './process-utils';
+import { read } from 'fs';
 
 async function downloadUrlToFile(
   url: string,
@@ -62,13 +63,26 @@ export async function run(
   const localPackageJson = await readPackageJson(packageJsonPath);
   const localProjectName = projectName ?? localPackageJson.name;
 
-  const packageJsonOverridesFromTemplate = {
+  const packageJsonOverrides = {
     ...pick(templatePackageJson, ['scripts']),
     name: localProjectName,
     homepage: `https://github.com/${author}/${localProjectName}`,
     repository: { type: 'git', url: `git@github.com:${author}/${localProjectName}` },
     author,
   };
+
+  const parentPackageJsonPath = path.join(path.dirname(path.resolve(cwd)), 'package.json');
+
+  if (await fileExists(parentPackageJsonPath)) {
+    const parentPackageJson = await readPackageJson(parentPackageJsonPath);
+    if (parentPackageJson.name === 'mono') {
+      packageJsonOverrides.homepage = `https://github.com/${author}/${parentPackageJson.name}`;
+      packageJsonOverrides.repository = {
+        type: 'git',
+        url: `https://github.com/${author}/${parentPackageJson.name}`,
+      };
+    }
+  }
 
   if (templatePackageJson.devDependencies) {
     const devDependenciesString = Object.entries(templatePackageJson.devDependencies).map(
@@ -84,7 +98,9 @@ export async function run(
     await npmInstall(dependenciesString.join(' '), false);
   }
 
-  const packageJson = deepmerge(localPackageJson, packageJsonOverridesFromTemplate);
+  const packageJsonAfterDependencyUpdates = await readPackageJson(packageJsonPath);
+
+  const packageJson = deepmerge(packageJsonAfterDependencyUpdates, packageJsonOverrides);
 
   await fs.mkdir(cwd, { recursive: true });
   if (outputPath) {
