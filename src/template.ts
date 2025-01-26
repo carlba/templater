@@ -130,6 +130,7 @@ export async function run(
     '.gitignore',
     'jest.config.ts',
     '.eslintrc.js',
+    '.nvmrc',
   ]) {
     if (fileName === '.eslintrc.js' && localPackageJson.type === 'module') {
       await downloadUrlToFile(
