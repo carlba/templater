@@ -61,25 +61,29 @@ export async function run(
 
   const localPackageJson = await readPackageJson(packageJsonPath);
   const localProjectName = projectName ?? localPackageJson.name;
+  const homepage = `https://github.com/${author}/${localProjectName}`;
+  const gitRepoUrl = `git@github.com:${author}/${localProjectName}`;
 
   const packageJsonOverrides = {
     ...pick(templatePackageJson, ['scripts']),
     name: localProjectName,
-    homepage: `https://github.com/${author}/${localProjectName}`,
-    repository: { type: 'git', url: `git@github.com:${author}/${localProjectName}` },
+    homepage,
+    repository: { type: 'git', url: gitRepoUrl },
     author,
+    bugs: { url: homepage },
   };
 
   const parentPackageJsonPath = path.join(path.dirname(path.resolve(cwd)), 'package.json');
 
   if (await fileExists(parentPackageJsonPath)) {
     const parentPackageJson = await readPackageJson(parentPackageJsonPath);
+    const homepage = `https://github.com/${author}/${parentPackageJson.name}`;
+    const gitRepoUrl = `git@github.com:${author}/${parentPackageJson.name}`;
+
     if (parentPackageJson.name === 'mono') {
-      packageJsonOverrides.homepage = `https://github.com/${author}/${parentPackageJson.name}`;
-      packageJsonOverrides.repository = {
-        type: 'git',
-        url: `https://github.com/${author}/${parentPackageJson.name}`,
-      };
+      packageJsonOverrides.homepage = homepage;
+      packageJsonOverrides.repository = { type: 'git', url: gitRepoUrl };
+      packageJsonOverrides.bugs = { url: homepage };
     }
   }
 
