@@ -1,12 +1,13 @@
 {
-  "extends": "@tsconfig/node20/tsconfig.json",
+  "extends": "@tsconfig/node24/tsconfig.json",
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+
     "sourceMap": true,
     "outDir": "./dist",
-    "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "moduleResolution": "nodenext",
+    "verbatimModuleSyntax": true, // Enforces .js for modules
+    "skipLibCheck": true
   },
   "include": ["src"],
   "exclude": ["node_modules"]
