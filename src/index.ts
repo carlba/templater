@@ -1,7 +1,7 @@
 #! /usr/bin/env node
 
 import { Command } from '@commander-js/extra-typings';
-import { run } from './template';
+import { run } from './template.js';
 
 new Command()
   .name('watch')
@@ -15,7 +15,6 @@ new Command()
   .option('-a, --author <AUTHOR>', 'The author of the repo', 'carlba')
   .option('-p, --project-name <PROJECT_NAME>', 'The name of the project')
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   .action(async (directory, options) => {
     await run(options.uri, directory ?? '.', options.author, options.projectName);
   })

@@ -1,49 +1,96 @@
-/* eslint-disable no-prototype-builtins */
-import * as fs from 'fs/promises';
-import { PackageJson } from 'type-fest';
+import fs from 'fs/promises';
+import type { PackageJson } from 'type-fest';
 import { deepmerge } from 'deepmerge-ts';
 import path from 'path';
-import { pick } from './utils';
-import { Transform, Readable } from 'node:stream';
+
 import { createWriteStream } from 'node:fs';
-import split2 from 'split2';
-import { fileExists, readPackageJson, replaceInFile } from './file-utils';
-import { npmInstall } from './process-utils';
+import readline from 'readline';
+import { fileExistsAccessible, readPackageJson, replaceInFile } from './file-utils.js';
+import { npmInstall, npmUnInstall } from './process-utils.js';
+import { LOGGER } from './logger.js';
+import { pick } from './utils.js';
+import { Readable } from 'node:stream';
+
+const DEPRECATED_PACKAGES =
+  'ts-node jest ts-jest husky @types/jest @typescript-eslint/eslint-plugin @tsconfig/node20';
+
+const logger = LOGGER.child({ module: 'template' });
+
+function isTruthy<T>(value: T): value is NonNullable<T> {
+  return Boolean(value);
+}
+
+async function clearDeprecatedFiles(outputPath: string) {
+  const deprecatedFiles = ['.eslintrc.js', '.eslintrc.cjs'];
+
+  const existingDeprecatedFiles = (
+    await Promise.all(
+      deprecatedFiles.map(deprecatedFile =>
+        fileExistsAccessible(deprecatedFile).then(res => res && deprecatedFile)
+      )
+    )
+  ).filter(isTruthy);
+
+  await Promise.all(
+    deprecatedFiles.map(deprecatedFile =>
+      fs.rm(path.join(outputPath, deprecatedFile), { force: true })
+    )
+  );
+  logger.info({ existingDeprecatedFiles }, 'Found deprecated files and removed them');
+}
+
+function concatDependencies(dependencies: Partial<Record<string, string>>) {
+  return Object.entries(dependencies)
+    .map(([name, version]) => `${name}@${version}`.replace('^', ''))
+    .join(' ');
+}
 
 async function downloadUrlToFile(
   url: string,
   file: string,
-  replacements: Record<string, string> = {}
+  replacements: Record<string, string> = {},
+  silent = false
 ) {
+  const localLogger = logger.child({ context: 'downloadUrlToFile', file, url });
+
   const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(`unexpected response ${response.statusText}`);
+    if (!silent) {
+      throw new Error(`unexpected response ${response.statusText}`);
+    } else {
+      localLogger.debug('Failed to download');
+      return false;
+    }
   }
-
-  const replaceStream = new Transform({
-    transform(chunk: string, encoding, callback) {
-      let data = chunk.toString();
-
-      for (const [from, to] of Object.entries(replacements)) {
-        data = data.replace(new RegExp(from, 'g'), to);
-      }
-      callback(null, data + '\n');
-    },
-  });
 
   if (response.body) {
     const writeStream = createWriteStream(file);
-    // https://nodejs.org/api/stream.html#streamreadablefromwebreadablestream-options
-    Readable.fromWeb(response.body).pipe(split2()).pipe(replaceStream).pipe(writeStream);
+    const rl = readline.createInterface({ input: Readable.fromWeb(response.body) });
 
-    return new Promise((resolve, reject) => {
-      writeStream.on('finish', resolve);
-      writeStream.on('error', reject);
+    return new Promise<boolean>((resolve, reject) => {
+      rl.on('line', line => {
+        let data = line;
+        for (const [from, to] of Object.entries(replacements)) {
+          data = data.replace(new RegExp(from, 'g'), to);
+        }
+        writeStream.write(data + '\n');
+      });
+
+      rl.on('close', () => {
+        writeStream.end();
+      });
+
+      rl.on('error', error => {
+        reject(error);
+      });
+
+      writeStream.on('finish', () => resolve(true));
+      writeStream.on('error', error => reject(error));
     });
   }
 
-  console.log(`Finished downloading ${file}`);
+  localLogger.info({ file }, 'Finished downloading');
 }
 
 export async function run(
@@ -71,11 +118,14 @@ export async function run(
     repository: { type: 'git', url: gitRepoUrl },
     author,
     bugs: { url: homepage },
+    type: templatePackageJson.type,
   };
+
+  let packageManager: 'npm' | 'pnpm' = 'npm';
 
   const parentPackageJsonPath = path.join(path.dirname(path.resolve(cwd)), 'package.json');
 
-  if (await fileExists(parentPackageJsonPath)) {
+  if (await fileExistsAccessible(parentPackageJsonPath)) {
     const parentPackageJson = await readPackageJson(parentPackageJsonPath);
     const homepage = `https://github.com/${author}/${parentPackageJson.name}`;
     const gitRepoUrl = `git@github.com:${author}/${parentPackageJson.name}`;
@@ -84,24 +134,27 @@ export async function run(
       packageJsonOverrides.homepage = homepage;
       packageJsonOverrides.repository = { type: 'git', url: gitRepoUrl };
       packageJsonOverrides.bugs = { url: homepage };
+      packageManager = 'pnpm';
     }
   }
 
   if (templatePackageJson.devDependencies) {
-    const devDependenciesString = Object.entries(templatePackageJson.devDependencies).map(
-      ([name, version]) => `${name}@${version}`.replace('^', '')
-    );
-    await npmInstall(devDependenciesString.join(' '), true);
+    await npmInstall(concatDependencies(templatePackageJson.devDependencies), true, packageManager);
   }
 
   if (templatePackageJson.dependencies) {
-    const dependenciesString = Object.entries(templatePackageJson.dependencies).map(
-      ([name, version]) => `${name}@${version}`.replace('^', '')
-    );
-    await npmInstall(dependenciesString.join(' '), false);
+    await npmInstall(concatDependencies(templatePackageJson.dependencies), false, packageManager);
   }
 
   const packageJsonAfterDependencyUpdates = await readPackageJson(packageJsonPath);
+
+  if (packageJsonAfterDependencyUpdates.devDependencies) {
+    packageJsonAfterDependencyUpdates.devDependencies = Object.fromEntries(
+      Object.entries(packageJsonAfterDependencyUpdates.devDependencies).filter(
+        ([packageName]) => !DEPRECATED_PACKAGES.includes(packageName)
+      )
+    );
+  }
 
   const packageJson = deepmerge(packageJsonAfterDependencyUpdates, packageJsonOverrides);
 
@@ -112,19 +165,22 @@ export async function run(
 
   process.chdir(cwd);
 
+  const packageJsonpath = `${outputPath ?? '.'}/package.json`;
+
   try {
-    await fs.writeFile(
-      `${outputPath ?? '.'}/package.json`,
-      JSON.stringify(packageJson, null, 2) + '\n'
-    );
-    console.log('Successfully wrote to file');
-  } catch (e) {
-    console.error('Error writing file', e);
+    await fs.writeFile(packageJsonpath, JSON.stringify(packageJson, null, 2) + '\n');
+    logger.info({ packageJsonpath }, 'Successfully wrote package.json');
+  } catch (err) {
+    logger.error({ err }, 'Error writing to package.json');
   }
   const replacements =
     templatePackageJson.name && localProjectName
       ? { [templatePackageJson.name]: localProjectName }
       : {};
+
+  await clearDeprecatedFiles(outputPath ?? '.');
+
+  await npmUnInstall(DEPRECATED_PACKAGES, packageManager);
 
   for await (const fileName of [
     'nodemon.json',
@@ -133,21 +189,18 @@ export async function run(
     '.prettierrc',
     '.gitignore',
     'jest.config.ts',
-    '.eslintrc.js',
+    'vitest.config.ts',
+    'eslint.config.js',
     '.nvmrc',
   ]) {
-    if (fileName === '.eslintrc.js' && localPackageJson.type === 'module') {
-      await downloadUrlToFile(
-        `${baseUrl}/${fileName}`,
-        `${outputPath ?? '.'}/${fileName}`.replace('.js', '.cjs'),
-        replacements
-      );
-    } else {
-      await downloadUrlToFile(
-        `${baseUrl}/${fileName}`,
-        `${outputPath ?? '.'}/${fileName}`,
-        replacements
-      );
+    const filePath = `${baseUrl}/${fileName}`;
+
+    const outputFilePath = `${outputPath ?? '.'}/${fileName}`;
+
+    const result = await downloadUrlToFile(filePath, outputFilePath, replacements, true);
+
+    if (!result) {
+      await fs.rm(outputFilePath, { force: true });
     }
   }
 
@@ -158,7 +211,9 @@ export async function run(
     '.prettierrc',
     '.gitignore',
     'jest.config.ts',
+    'vitest.config.ts',
     '.eslintrc.js',
+    '.eslintrc.cjs',
     'README.md',
     'package-lock.json',
   ]) {

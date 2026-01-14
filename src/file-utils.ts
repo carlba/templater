@@ -1,19 +1,20 @@
-import * as fs from 'fs/promises';
-import { PackageJson } from 'type-fest';
+import fs from 'fs/promises';
+import type { PackageJson } from 'type-fest';
 import path from 'path';
-import { rename, access } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Transform } from 'node:stream';
 import split2 from 'split2';
+import { LOGGER } from './logger.js';
 
-export async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
+const logger = LOGGER.child({ module: 'file-utils' });
+
+export async function fileExistsAccessible(filePath: string): Promise<boolean> {
+  return await fs
+    .access(filePath)
+    .then(() => true)
+    .catch(() => false);
 }
+
 export async function renameFile(oldPath: string, newPath: string, relative: boolean) {
   if (relative) {
     oldPath = path.resolve(oldPath);
@@ -21,11 +22,10 @@ export async function renameFile(oldPath: string, newPath: string, relative: boo
   }
 
   try {
-    await rename(oldPath, newPath);
-    // console.log(`Successfully renamed file from ${oldPath} to ${newPath}`);
+    await fs.rename(oldPath, newPath);
   } catch (error) {
     if (error instanceof Error)
-      console.error(`Error renaming file from ${oldPath} to ${newPath}: ${error.message}`);
+      logger.error({ err: error, oldPath, newPath }, `Error renaming file`);
   }
 }
 export async function readPackageJson(filePath: string): Promise<PackageJson> {
@@ -38,13 +38,14 @@ export async function readPackageJson(filePath: string): Promise<PackageJson> {
     }
     return json;
   } catch (error) {
-    console.error(`Error reading file from ${filePath}`, error);
+    logger.error({ err: error, filePath }, 'Error reading file from');
     throw error;
   }
 }
 export async function replaceInFile(fileName: string, replacements: Record<string, string> = {}) {
-  if (!(await fileExists(fileName))) {
-    console.log(`The file ${fileName} did not exist`);
+  if (!(await fileExistsAccessible(fileName))) {
+    logger.debug({ fileName }, `The file did not exist`);
+    return;
   }
 
   const readStream = createReadStream(fileName);
@@ -65,12 +66,12 @@ export async function replaceInFile(fileName: string, replacements: Record<strin
 
   readStream.pipe(split2()).pipe(replaceStream).pipe(writeStream);
 
-  await new Promise((resolve, reject) => {
-    writeStream.on('finish', resolve);
-    writeStream.on('error', reject);
+  await new Promise<true>((resolve, reject) => {
+    writeStream.on('finish', () => resolve(true));
+    writeStream.on('error', error => reject(error));
   });
 
   await renameFile(tempFilename, fileName, true);
 
-  console.log(`Finished replacing things in ${fileName}`);
+  logger.debug(`Finished replacing things in ${fileName}`);
 }
