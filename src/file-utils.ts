@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import type { PackageJson } from 'type-fest';
 import path from 'path';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, stat } from 'node:fs';
 import { Transform } from 'node:stream';
 import split2 from 'split2';
 import { LOGGER } from './logger.js';
@@ -74,4 +74,13 @@ export async function replaceInFile(fileName: string, replacements: Record<strin
   await renameFile(tempFilename, fileName, true);
 
   logger.debug(`Finished replacing things in ${fileName}`);
+}
+
+export async function ensureDir(dir: string) {
+  try {
+    await fs.mkdir(dir, { recursive: true });
+  } catch (err: unknown) {
+    logger.debug({ err }, `Failed to ensure directory exists: ${dir}`);
+    throw err;
+  }
 }

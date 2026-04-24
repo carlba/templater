@@ -5,7 +5,7 @@ import path from 'path';
 
 import { createWriteStream } from 'node:fs';
 import readline from 'readline';
-import { fileExistsAccessible, readPackageJson, replaceInFile } from './file-utils.js';
+import { ensureDir, fileExistsAccessible, readPackageJson, replaceInFile } from './file-utils.js';
 import { npmInstall, npmUnInstall } from './process-utils.js';
 import { LOGGER } from './logger.js';
 import { pick } from './utils.js';
@@ -65,6 +65,8 @@ async function downloadUrlToFile(
   }
 
   if (response.body) {
+    ensureDir(path.dirname(file));
+
     const writeStream = createWriteStream(file);
     const rl = readline.createInterface({ input: Readable.fromWeb(response.body) });
 
@@ -85,8 +87,12 @@ async function downloadUrlToFile(
         reject(error);
       });
 
-      writeStream.on('finish', () => resolve(true));
-      writeStream.on('error', error => reject(error));
+      writeStream.on('finish', () => {
+        resolve(true);
+      });
+      writeStream.on('error', error => {
+        reject(error);
+      });
     });
   }
 
@@ -108,6 +114,11 @@ export async function run(
 
   const localPackageJson = await readPackageJson(packageJsonPath);
   const localProjectName = projectName ?? localPackageJson.name;
+
+  if (!localProjectName) {
+    throw new Error('localProjectName not defined should not happen');
+  }
+
   const homepage = `https://github.com/${author}/${localProjectName}`;
   const gitRepoUrl = `git@github.com:${author}/${localProjectName}`;
 
@@ -127,6 +138,9 @@ export async function run(
 
   if (await fileExistsAccessible(parentPackageJsonPath)) {
     const parentPackageJson = await readPackageJson(parentPackageJsonPath);
+    if (!parentPackageJson.name) {
+      throw new Error('The parentpackage must have a name');
+    }
     const homepage = `https://github.com/${author}/${parentPackageJson.name}`;
     const gitRepoUrl = `git@github.com:${author}/${parentPackageJson.name}`;
 
@@ -182,7 +196,10 @@ export async function run(
 
   await npmUnInstall(DEPRECATED_PACKAGES, packageManager);
 
-  for await (const fileName of [
+  for (const fileName of [
+    '.github/copilot-instructions.md',
+    '.github/workflows/publish.yml',
+    '.github/workflows/ci.yml',
     'nodemon.json',
     'tsconfig.json',
     'tsconfig.spec.json',
@@ -204,16 +221,16 @@ export async function run(
     }
   }
 
-  for await (const fileName of [
+  for (const fileName of [
+    '.github/copilot-instructions.md',
+    '.github/workflows/publish.yml',
+    '.github/workflows/ci.yml',
     'nodemon.json',
     'tsconfig.json',
     'tsconfig.spec.json',
     '.prettierrc',
     '.gitignore',
-    'jest.config.ts',
     'vitest.config.ts',
-    '.eslintrc.js',
-    '.eslintrc.cjs',
     'README.md',
     'package-lock.json',
   ]) {

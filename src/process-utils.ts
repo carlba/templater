@@ -12,13 +12,13 @@ export async function npmInstall(
   packageManager: 'npm' | 'pnpm' = 'npm'
 ) {
   const localLogger = logger.child({ context: 'npmInstall' });
-  if (packageName && !isDevDep) {
-    throw new Error('isDevDep must be defined if a package name is used');
-  }
+  // if (packageName && !isDevDep) {
+  //   throw new Error('isDevDep must be defined if a package name is used');
+  // }
 
   try {
     const { stdout } = await execAsync(
-      `${packageManager} install ${isDevDep ? '--save-dev' : ''} ${packageName ? packageName : ''}`
+      `${packageManager} install ${isDevDep ? '--save-dev' : ''} ${packageName ?? ''}`
     );
 
     localLogger.info({ stdout });
@@ -33,7 +33,7 @@ async function checkIfPackageIsInstalled(
 ): Promise<boolean> {
   try {
     const { stdout } = await execAsync(`${packageManager} list ${packageName} --json`);
-    const parsed = JSON.parse(stdout);
+    const parsed = JSON.parse(stdout) as { dependencies?: Record<string, unknown> };
     return !!parsed.dependencies?.[packageName];
   } catch (error) {
     // Ensure unexpected errors are not silenced
@@ -50,7 +50,7 @@ export async function npmUnInstall(packageName: string, packageManager: 'npm' | 
   try {
     const packageNames = packageName.split(' ');
 
-    const result = Promise.all(
+    const result = await Promise.all(
       packageNames.map(async packageName => {
         if (await checkIfPackageIsInstalled(packageName, packageManager)) {
           const { stdout } = await execAsync(`${packageManager} uninstall ${packageName}`);
