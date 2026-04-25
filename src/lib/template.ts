@@ -3,12 +3,9 @@ import type { PackageJson } from 'type-fest';
 import { deepmerge } from 'deepmerge-ts';
 import path from 'path';
 
-import { createWriteStream } from 'node:fs';
-import readline from 'readline';
 import { ensureDir, fileExistsAccessible, readPackageJson, replaceInFile } from './file.js';
 import { npmInstall, npmUnInstall } from './process.js';
 import { createLogger } from './logger.js';
-import { Readable } from 'node:stream';
 import { pick } from './utils.js';
 
 const DEPRECATED_PACKAGES =
@@ -48,12 +45,24 @@ function concatDependencies(dependencies: Partial<Record<string, string>>) {
     .join(' ');
 }
 
+type DownloadResult = 'created' | 'updated' | 'unchanged' | 'failed';
+
+/**
+ * Download a file from the given URL, apply replacements, and write it locally
+ * only if the resulting content differs from the current file.
+ *
+ * @param url - Remote URL to download.
+ * @param file - Local file path to write.
+ * @param replacements - Optional pattern replacements to apply to the downloaded content.
+ * @param silent - If true, suppresses non-OK response errors and returns 'failed'.
+ * @returns A promise resolving to 'created', 'updated', 'unchanged', or 'failed'.
+ */
 async function downloadUrlToFile(
   url: string,
   file: string,
   replacements: Record<string, string> = {},
   silent = false
-) {
+): Promise<DownloadResult> {
   const localLogger = logger.child({ context: 'downloadUrlToFile', file, url });
 
   const response = await fetch(url);
@@ -61,45 +70,40 @@ async function downloadUrlToFile(
   if (!response.ok) {
     if (!silent) {
       throw new Error(`unexpected response ${response.statusText}`);
-    } else {
-      localLogger.debug('Failed to download');
-      return false;
+    }
+    localLogger.debug('Failed to download');
+    return 'failed';
+  }
+
+  const downloaded = await response.text();
+  const applyReplacements = (value: string) =>
+    Object.entries(replacements).reduce(
+      (current, [from, to]) => current.replace(new RegExp(from, 'g'), to),
+      value
+    );
+
+  /**
+   * Normalize line endings so file comparisons ignore CRLF vs LF differences.
+   *
+   * @param value - Text to normalize.
+   */
+  const normalize = (value: string) => value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  let normalizedContent = normalize(applyReplacements(downloaded));
+  if (!normalizedContent.endsWith('\n')) {
+    normalizedContent += '\n';
+  }
+
+  const fileAlreadyExists = await fileExistsAccessible(file);
+  if (fileAlreadyExists) {
+    const existingContent = normalize(await fs.readFile(file, 'utf-8'));
+    if (existingContent === normalizedContent) {
+      return 'unchanged';
     }
   }
 
-  if (response.body) {
-    await ensureDir(path.dirname(file));
-
-    const writeStream = createWriteStream(file);
-    const rl = readline.createInterface({ input: Readable.fromWeb(response.body) });
-
-    return new Promise<boolean>((resolve, reject) => {
-      rl.on('line', line => {
-        let data = line;
-        for (const [from, to] of Object.entries(replacements)) {
-          data = data.replace(new RegExp(from, 'g'), to);
-        }
-        writeStream.write(data + '\n');
-      });
-
-      rl.on('close', () => {
-        writeStream.end();
-      });
-
-      rl.on('error', error => {
-        reject(error);
-      });
-
-      writeStream.on('finish', () => {
-        resolve(true);
-      });
-      writeStream.on('error', error => {
-        reject(error);
-      });
-    });
-  }
-
-  localLogger.info({ file }, 'Finished downloading');
+  await ensureDir(path.dirname(file));
+  await fs.writeFile(file, normalizedContent, 'utf-8');
+  return fileAlreadyExists ? 'updated' : 'created';
 }
 
 export async function run(
@@ -199,7 +203,7 @@ export async function run(
 
   await npmUnInstall(DEPRECATED_PACKAGES, packageManager);
 
-  for (const fileName of [
+  const downloadPromises = [
     '.github/copilot-instructions.md',
     '.github/workflows/publish.yml',
     '.github/workflows/ci.yml',
@@ -212,19 +216,33 @@ export async function run(
     'vitest.config.ts',
     'eslint.config.js',
     '.nvmrc',
-  ]) {
-    const filePath = `${baseUrl}/${fileName}`;
-
-    const outputFilePath = `${outputPath ?? '.'}/${fileName}`;
-
-    const result = await downloadUrlToFile(filePath, outputFilePath, replacements, true);
-
-    if (!result) {
-      await fs.rm(outputFilePath, { force: true });
+  ].map(async fileRelativePath => {
+    let status: 'unchanged' | 'updated' | 'deleted' | 'created' = 'unchanged';
+    const fileUrl = `${baseUrl}/${fileRelativePath}`;
+    const outputFilePath = `${outputPath ?? '.'}/${fileRelativePath}`;
+    const downloadResult = await downloadUrlToFile(fileUrl, outputFilePath, replacements, true);
+    if (downloadResult === 'failed') {
+      if (await fileExistsAccessible(outputFilePath)) {
+        await fs.rm(outputFilePath, { force: true });
+        status = 'deleted';
+      }
     }
-  }
 
-  for (const fileName of [
+    return {
+      outputFilePath,
+      status:
+        downloadResult === 'updated' || downloadResult === 'created' ? downloadResult : status,
+    };
+  });
+
+  const results = await Promise.all(downloadPromises);
+
+  logger.info(
+    { files: results.filter(result => result.status !== 'unchanged') },
+    'Synchronized template with local files'
+  );
+
+  const replaceInFilePromises = [
     '.github/copilot-instructions.md',
     '.github/workflows/publish.yml',
     '.github/workflows/ci.yml',
@@ -236,7 +254,21 @@ export async function run(
     'vitest.config.ts',
     'README.md',
     'package-lock.json',
-  ]) {
-    await replaceInFile(`${outputPath ?? '.'}/${fileName}`, replacements);
-  }
+  ].map(async fileRelativePath => {
+    return {
+      status: await replaceInFile(`${outputPath ?? '.'}/${fileRelativePath}`, replacements),
+      fileRelativePath,
+    };
+  });
+
+  const replaceResults = await Promise.all(replaceInFilePromises);
+
+  logger.info(
+    {
+      files: replaceResults.filter(
+        result => result.status === 'failed' || result.status === 'nonexisting'
+      ),
+    },
+    'Replacing in files'
+  );
 }

@@ -45,7 +45,6 @@ export async function npmUnInstall(packageName: string, packageManager: 'npm' | 
     context: 'npmUnInstall',
     packageManager,
     cwd: process.cwd(),
-    test: 'test',
   });
 
   try {

@@ -1,13 +1,16 @@
 import fs from 'fs/promises';
 import type { PackageJson } from 'type-fest';
 import path from 'path';
-import { createReadStream, createWriteStream } from 'node:fs';
-import { Transform, type TransformCallback } from 'node:stream';
-import split2 from 'split2';
 import { createLogger } from './logger.js';
 
 const logger = createLogger().child({ name: 'templater', module: 'file' });
 
+/**
+ * Check whether a file exists and is accessible.
+ *
+ * @param filePath - The path to the file to check.
+ * @returns True if the file can be accessed, otherwise false.
+ */
 export async function fileExistsAccessible(filePath: string): Promise<boolean> {
   return await fs
     .access(filePath)
@@ -37,42 +40,48 @@ export async function readPackageJson(filePath: string): Promise<PackageJson> {
     throw error;
   }
 }
-export async function replaceInFile(fileName: string, replacements: Record<string, string> = {}) {
+
+type ReplaceResult = 'changed' | 'unchanged' | 'failed' | 'nonexisting';
+
+/**
+ * Replace text in a file using the provided replacements.
+ *
+ * @param fileName - The file to modify.
+ * @param replacements - Mapping from pattern to replacement text.
+ * @returns 'changed' when the file was updated, 'unchanged' when no edits were needed, or 'failed' when the operation could not complete.
+ */
+export async function replaceInFile(
+  fileName: string,
+  replacements: Record<string, string> = {}
+): Promise<ReplaceResult> {
   if (!(await fileExistsAccessible(fileName))) {
     logger.debug({ fileName }, `The file did not exist`);
-    return;
+    return 'nonexisting';
   }
 
-  const readStream = createReadStream(fileName);
+  try {
+    const originalContent = await fs.readFile(fileName, 'utf-8');
+    let updatedContent = originalContent;
 
-  const replaceStream = new Transform({
-    transform(chunk: Buffer | string, encoding: BufferEncoding, callback: TransformCallback) {
-      let data = chunk.toString();
+    for (const [from, to] of Object.entries(replacements)) {
+      updatedContent = updatedContent.replace(new RegExp(from, 'g'), to);
+    }
 
-      for (const [from, to] of Object.entries(replacements)) {
-        data = data.replace(new RegExp(from, 'g'), to);
-      }
-      callback(null, data + '\n');
-    },
-  });
+    if (updatedContent === originalContent) {
+      logger.debug(`No changes needed for ${fileName}`);
+      return 'unchanged';
+    }
 
-  const tempFilename = `${fileName}.tmp`;
-  const writeStream = createWriteStream(tempFilename);
+    const tempFilename = `${fileName}.tmp`;
+    await fs.writeFile(tempFilename, updatedContent, 'utf-8');
+    await renameFile(tempFilename, fileName, true);
 
-  readStream.pipe(split2()).pipe(replaceStream).pipe(writeStream);
-
-  await new Promise<true>((resolve, reject) => {
-    writeStream.on('finish', () => {
-      resolve(true);
-    });
-    writeStream.on('error', error => {
-      reject(error);
-    });
-  });
-
-  await renameFile(tempFilename, fileName, true);
-
-  logger.debug(`Finished replacing things in ${fileName}`);
+    logger.debug(`Finished replacing things in ${fileName}`);
+    return 'changed';
+  } catch (error) {
+    logger.error({ err: error, fileName }, `Failed replacing things in ${fileName}`);
+    return 'failed';
+  }
 }
 
 export async function ensureDir(dir: string) {
