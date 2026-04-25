@@ -1,12 +1,12 @@
 import fs from 'fs/promises';
 import type { PackageJson } from 'type-fest';
 import path from 'path';
-import { createReadStream, createWriteStream, stat } from 'node:fs';
-import { Transform } from 'node:stream';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { Transform, type TransformCallback } from 'node:stream';
 import split2 from 'split2';
-import { LOGGER } from './logger.js';
+import { createLogger } from './logger.js';
 
-const logger = LOGGER.child({ module: 'file-utils' });
+const logger = createLogger().child({ name: 'templater', module: 'file' });
 
 export async function fileExistsAccessible(filePath: string): Promise<boolean> {
   return await fs
@@ -31,12 +31,7 @@ export async function renameFile(oldPath: string, newPath: string, relative: boo
 export async function readPackageJson(filePath: string): Promise<PackageJson> {
   try {
     const data = await fs.readFile(filePath, 'utf-8');
-    const json = JSON.parse(data) as PackageJson;
-
-    if (json === undefined) {
-      throw Error('Could not parse json from file');
-    }
-    return json;
+    return JSON.parse(data) as PackageJson;
   } catch (error) {
     logger.error({ err: error, filePath }, 'Error reading file from');
     throw error;
@@ -51,7 +46,7 @@ export async function replaceInFile(fileName: string, replacements: Record<strin
   const readStream = createReadStream(fileName);
 
   const replaceStream = new Transform({
-    transform(chunk: string, encoding, callback) {
+    transform(chunk: Buffer | string, encoding: BufferEncoding, callback: TransformCallback) {
       let data = chunk.toString();
 
       for (const [from, to] of Object.entries(replacements)) {
@@ -67,8 +62,12 @@ export async function replaceInFile(fileName: string, replacements: Record<strin
   readStream.pipe(split2()).pipe(replaceStream).pipe(writeStream);
 
   await new Promise<true>((resolve, reject) => {
-    writeStream.on('finish', () => resolve(true));
-    writeStream.on('error', error => reject(error));
+    writeStream.on('finish', () => {
+      resolve(true);
+    });
+    writeStream.on('error', error => {
+      reject(error);
+    });
   });
 
   await renameFile(tempFilename, fileName, true);
@@ -80,7 +79,7 @@ export async function ensureDir(dir: string) {
   try {
     await fs.mkdir(dir, { recursive: true });
   } catch (err: unknown) {
-    logger.debug({ err }, `Failed to ensure directory exists: ${dir}`);
+    logger.error({ err }, `Failed to ensure directory exists: \${dir}`);
     throw err;
   }
 }

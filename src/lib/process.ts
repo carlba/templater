@@ -1,10 +1,10 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { LOGGER } from './logger.js';
+import { createLogger } from './logger.js';
 
 const execAsync = promisify(exec);
 
-const logger = LOGGER.child({ module: 'process-utils' });
+const logger = createLogger().child({ name: 'templater', module: 'process' });
 
 export async function npmInstall(
   packageName?: string,
@@ -12,18 +12,14 @@ export async function npmInstall(
   packageManager: 'npm' | 'pnpm' = 'npm'
 ) {
   const localLogger = logger.child({ context: 'npmInstall' });
-  // if (packageName && !isDevDep) {
-  //   throw new Error('isDevDep must be defined if a package name is used');
-  // }
-
   try {
     const { stdout } = await execAsync(
       `${packageManager} install ${isDevDep ? '--save-dev' : ''} ${packageName ?? ''}`
     );
 
-    localLogger.info({ stdout });
-  } catch (e) {
-    localLogger.error({ err: e });
+    return stdout;
+  } catch (err) {
+    localLogger.error({ err });
   }
 }
 
@@ -45,12 +41,17 @@ async function checkIfPackageIsInstalled(
 }
 
 export async function npmUnInstall(packageName: string, packageManager: 'npm' | 'pnpm' = 'npm') {
-  const localLogger = logger.child({ context: 'npmUnInstall', packageManager, cwd: process.cwd() });
+  const localLogger = logger.child({
+    context: 'npmUnInstall',
+    packageManager,
+    cwd: process.cwd(),
+    test: 'test',
+  });
 
   try {
     const packageNames = packageName.split(' ');
 
-    const result = await Promise.all(
+    await Promise.all(
       packageNames.map(async packageName => {
         if (await checkIfPackageIsInstalled(packageName, packageManager)) {
           const { stdout } = await execAsync(`${packageManager} uninstall ${packageName}`);
@@ -59,7 +60,7 @@ export async function npmUnInstall(packageName: string, packageManager: 'npm' | 
       })
     );
 
-    localLogger.info({ result });
+    localLogger.info(`Uninstalled ${packageName}`);
   } catch (err) {
     localLogger.error({ err });
   }

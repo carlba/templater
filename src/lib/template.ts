@@ -5,16 +5,16 @@ import path from 'path';
 
 import { createWriteStream } from 'node:fs';
 import readline from 'readline';
-import { ensureDir, fileExistsAccessible, readPackageJson, replaceInFile } from './file-utils.js';
-import { npmInstall, npmUnInstall } from './process-utils.js';
-import { LOGGER } from './logger.js';
-import { pick } from './utils.js';
+import { ensureDir, fileExistsAccessible, readPackageJson, replaceInFile } from './file.js';
+import { npmInstall, npmUnInstall } from './process.js';
+import { createLogger } from './logger.js';
 import { Readable } from 'node:stream';
+import { pick } from './utils.js';
 
 const DEPRECATED_PACKAGES =
   'ts-node jest ts-jest husky @types/jest @typescript-eslint/eslint-plugin @tsconfig/node20';
 
-const logger = LOGGER.child({ module: 'template' });
+const logger = createLogger().child({ name: 'templater', module: 'template' });
 
 function isTruthy<T>(value: T): value is NonNullable<T> {
   return Boolean(value);
@@ -36,12 +36,15 @@ async function clearDeprecatedFiles(outputPath: string) {
       fs.rm(path.join(outputPath, deprecatedFile), { force: true })
     )
   );
-  logger.info({ existingDeprecatedFiles }, 'Found deprecated files and removed them');
+
+  if (existingDeprecatedFiles.length > 0) {
+    logger.info({ existingDeprecatedFiles }, 'Found deprecated files and removed them');
+  }
 }
 
 function concatDependencies(dependencies: Partial<Record<string, string>>) {
   return Object.entries(dependencies)
-    .map(([name, version]) => `${name}@${version}`.replace('^', ''))
+    .map(([name, version]) => `${name}@${version ?? 'latest'}`.replace('^', ''))
     .join(' ');
 }
 
@@ -65,7 +68,7 @@ async function downloadUrlToFile(
   }
 
   if (response.body) {
-    ensureDir(path.dirname(file));
+    await ensureDir(path.dirname(file));
 
     const writeStream = createWriteStream(file);
     const rl = readline.createInterface({ input: Readable.fromWeb(response.body) });
@@ -164,9 +167,9 @@ export async function run(
 
   if (packageJsonAfterDependencyUpdates.devDependencies) {
     packageJsonAfterDependencyUpdates.devDependencies = Object.fromEntries(
-      Object.entries(packageJsonAfterDependencyUpdates.devDependencies).filter(
-        ([packageName]) => !DEPRECATED_PACKAGES.includes(packageName)
-      )
+      Object.entries(packageJsonAfterDependencyUpdates.devDependencies).filter(([packageName]) => {
+        return !DEPRECATED_PACKAGES.split(' ').includes(packageName);
+      })
     );
   }
 

@@ -1,7 +1,7 @@
 #! /usr/bin/env node
 
 import { Command } from '@commander-js/extra-typings';
-import { run } from './template.js';
+import { run } from './lib/template.js';
 
 new Command()
   .name('watch')

@@ -1,0 +1,17 @@
+{
+  "ensureDirf": {
+    "prefix": "ensureDir",
+    "description": "teasdfasdf",
+    "scope": "typescript",
+    "body": [
+      "export async function ensureDir(dir: string) {",
+      "  try {",
+      "    await fs.mkdir(dir, { recursive: true });",
+      "  } catch (err: unknown) {",
+      "    logger.error({ err }, `Failed to ensure directory exists: \\${dir}`);",
+      "    throw err;",
+      "  }",
+      "}",
+    ],
+  },
+}

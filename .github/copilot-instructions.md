@@ -27,7 +27,7 @@ npm run format         # Format with Prettier
   function needs a comment to explain what it does, rename it or split it.
 - **Avoid magic numbers/strings**: Extract constants with descriptive names instead of using bare
   literals.
-- **Prefer positive conditionals**: Write `if (isValid)` rather than `if (!isInvalid)`.Æ
+- **Prefer positive conditionals**: Write `if (isValid)` rather than `if (!isInvalid)`.
 - **Limit function arguments**: Prefer fewer than three parameters. When more are needed, group
   related arguments into a named options object.
 - **Don't repeat yourself**: Extract duplicated logic into well-named shared functions.
