@@ -45,6 +45,20 @@ function concatDependencies(dependencies: Partial<Record<string, string>>) {
     .join(' ');
 }
 
+interface TemplaterMetadata {
+  managedDependencies: string[];
+  managedDevDependencies: string[];
+}
+
+function pinVersions(dependencies: Partial<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(dependencies).map(([name, version]) => [
+      name,
+      (version ?? 'latest').replace('^', ''),
+    ])
+  );
+}
+
 type DownloadResult = 'created' | 'updated' | 'unchanged' | 'failed';
 
 /**
@@ -120,6 +134,19 @@ export async function run(
   )) as PackageJson;
 
   const localPackageJson = await readPackageJson(packageJsonPath);
+
+  const previousMetadata = (localPackageJson as { templater?: TemplaterMetadata }).templater;
+  const previouslyManagedDeps = previousMetadata?.managedDependencies ?? [];
+  const previouslyManagedDevDeps = previousMetadata?.managedDevDependencies ?? [];
+
+  const currentTemplateDeps = Object.keys(templatePackageJson.dependencies ?? {});
+  const currentTemplateDevDeps = Object.keys(templatePackageJson.devDependencies ?? {});
+
+  const depsToRemove = [
+    ...previouslyManagedDeps.filter(name => !currentTemplateDeps.includes(name)),
+    ...previouslyManagedDevDeps.filter(name => !currentTemplateDevDeps.includes(name)),
+  ];
+
   const localProjectName = projectName ?? localPackageJson.name;
 
   if (!localProjectName) {
@@ -137,6 +164,12 @@ export async function run(
     author,
     bugs: { url: homepage },
     type: templatePackageJson.type,
+    ...(templatePackageJson.devDependencies && {
+      devDependencies: pinVersions(templatePackageJson.devDependencies),
+    }),
+    ...(templatePackageJson.dependencies && {
+      dependencies: pinVersions(templatePackageJson.dependencies),
+    }),
   };
 
   let packageManager: 'npm' | 'pnpm' = 'npm';
@@ -159,6 +192,11 @@ export async function run(
     }
   }
 
+  if (depsToRemove.length > 0) {
+    logger.info({ depsToRemove }, 'Removing dependencies no longer in template');
+    await npmUnInstall(depsToRemove.join(' '), packageManager);
+  }
+
   if (templatePackageJson.devDependencies) {
     await npmInstall(concatDependencies(templatePackageJson.devDependencies), true, packageManager);
   }
@@ -177,7 +215,15 @@ export async function run(
     );
   }
 
-  const packageJson = deepmerge(packageJsonAfterDependencyUpdates, packageJsonOverrides);
+  const templaterMetadata: TemplaterMetadata = {
+    managedDependencies: currentTemplateDeps,
+    managedDevDependencies: currentTemplateDevDeps,
+  };
+
+  const packageJson = {
+    ...deepmerge(packageJsonAfterDependencyUpdates, packageJsonOverrides),
+    templater: templaterMetadata,
+  };
 
   await fs.mkdir(cwd, { recursive: true });
   if (outputPath) {
