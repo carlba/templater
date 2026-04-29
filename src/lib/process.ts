@@ -13,8 +13,9 @@ export async function npmInstall(
 ) {
   const localLogger = logger.child({ context: 'npmInstall' });
   try {
+    const legacyPeerDepsFlag = packageManager === 'npm' ? '--legacy-peer-deps' : '';
     const { stdout } = await execAsync(
-      `${packageManager} install ${isDevDep ? '--save-dev' : ''} ${packageName ?? ''}`
+      `${packageManager} install ${isDevDep ? '--save-dev' : ''} ${legacyPeerDepsFlag} ${packageName ?? ''}`
     );
 
     return stdout;
