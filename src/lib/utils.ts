@@ -11,3 +11,7 @@ export function pick<O extends object, T extends keyof O>(obj: O, keys: T[]): Pi
 
   return pickedObject;
 }
+
+export function isTruthy<T>(value: T): value is NonNullable<T> {
+  return Boolean(value);
+}

@@ -92,3 +92,64 @@ export async function ensureDir(dir: string) {
     throw err;
   }
 }
+
+type DownloadResult = 'created' | 'updated' | 'unchanged' | 'failed';
+
+/**
+ * Download a file from the given URL, apply replacements, and write it locally
+ * only if the resulting content differs from the current file.
+ *
+ * @param url - Remote URL to download.
+ * @param file - Local file path to write.
+ * @param replacements - Optional pattern replacements to apply to the downloaded content.
+ * @param silent - If true, suppresses non-OK response errors and returns 'failed'.
+ * @returns A promise resolving to 'created', 'updated', 'unchanged', or 'failed'.
+ */
+export async function downloadUrlToFile(
+  url: string,
+  file: string,
+  replacements: Record<string, string> = {},
+  silent = false
+): Promise<DownloadResult> {
+  const localLogger = logger.child({ context: 'downloadUrlToFile', file, url });
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    if (!silent) {
+      throw new Error(`unexpected response ${response.statusText}`);
+    }
+    localLogger.debug('Failed to download');
+    return 'failed';
+  }
+
+  const downloaded = await response.text();
+  const applyReplacements = (value: string) =>
+    Object.entries(replacements).reduce(
+      (current, [from, to]) => current.replace(new RegExp(from, 'g'), to),
+      value
+    );
+
+  /**
+   * Normalize line endings so file comparisons ignore CRLF vs LF differences.
+   *
+   * @param value - Text to normalize.
+   */
+  const normalize = (value: string) => value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  let normalizedContent = normalize(applyReplacements(downloaded));
+  if (!normalizedContent.endsWith('\n')) {
+    normalizedContent += '\n';
+  }
+
+  const fileAlreadyExists = await fileExistsAccessible(file);
+  if (fileAlreadyExists) {
+    const existingContent = normalize(await fs.readFile(file, 'utf-8'));
+    if (existingContent === normalizedContent) {
+      return 'unchanged';
+    }
+  }
+
+  await ensureDir(path.dirname(file));
+  await fs.writeFile(file, normalizedContent, 'utf-8');
+  return fileAlreadyExists ? 'updated' : 'created';
+}

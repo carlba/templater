@@ -35,7 +35,7 @@ async function checkIfPackageIsInstalled(
   } catch (error) {
     // Ensure unexpected errors are not silenced
     if (error instanceof Error && !('code' in error))
-      logger.warn({ err: error }, 'Error while checkIfPackageIsInstalled');
+      logger.warn({ err: error }, `Error while ${checkIfPackageIsInstalled.name}`);
 
     return false;
   }
