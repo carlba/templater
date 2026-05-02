@@ -75,6 +75,8 @@ async function deriveParentPackageJsonOverrides(
   return {};
 }
 
+export type TemplaterPackageJson = PackageJson & { templater?: TemplaterMetadata };
+
 export async function run(
   baseUrl: string,
   cwd: string,
@@ -86,9 +88,9 @@ export async function run(
 
   const templatePackageJson = (await fetch(`${baseUrl}/package.json`).then(response =>
     response.json()
-  )) as PackageJson;
+  )) as TemplaterPackageJson;
 
-  const localPackageJson = await readPackageJson(packageJsonPath);
+  const localPackageJson: TemplaterPackageJson = await readPackageJson(packageJsonPath);
 
   const previousMetadata = (localPackageJson as { templater?: TemplaterMetadata }).templater;
   const previouslyManagedDeps = previousMetadata?.managedDependencies ?? [];
@@ -96,6 +98,7 @@ export async function run(
 
   const currentTemplateDeps = Object.keys(templatePackageJson.dependencies ?? {});
   const currentTemplateDevDeps = Object.keys(templatePackageJson.devDependencies ?? {});
+  const currentTemplateScripts = Object.keys(templatePackageJson.scripts ?? {});
 
   const depsToRemove = [
     ...previouslyManagedDeps.filter(name => !currentTemplateDeps.includes(name)),
@@ -111,13 +114,22 @@ export async function run(
   const homepage = `https://github.com/${author}/${localProjectName}`;
   const gitRepoUrl = `git@github.com:${author}/${localProjectName}`;
 
+  const templaterMetadata: TemplaterMetadata = {
+    managedDependencies: currentTemplateDeps,
+    managedDevDependencies: currentTemplateDevDeps,
+    managedScripts: localPackageJson.templater?.managedScripts ?? currentTemplateScripts,
+  };
+
   const packageJsonOverrides = {
-    ...pick(templatePackageJson, ['scripts']),
+    scripts:
+      templatePackageJson.scripts && templaterMetadata.managedScripts
+        ? pick(templatePackageJson.scripts, templaterMetadata.managedScripts)
+        : templatePackageJson.scripts,
     name: localProjectName,
     homepage,
     repository: { type: 'git', url: gitRepoUrl },
     author,
-    bugs: { url: homepage },
+    bugs: { url: `${homepage}/issues` },
     type: templatePackageJson.type,
     ...(templatePackageJson.devDependencies && {
       devDependencies: pinVersions(templatePackageJson.devDependencies),
@@ -158,11 +170,6 @@ export async function run(
       })
     );
   }
-
-  const templaterMetadata: TemplaterMetadata = {
-    managedDependencies: currentTemplateDeps,
-    managedDevDependencies: currentTemplateDevDeps,
-  };
 
   const packageJson = {
     ...deepmerge(
